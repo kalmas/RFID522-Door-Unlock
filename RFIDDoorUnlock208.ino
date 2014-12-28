@@ -104,7 +104,6 @@ int successRead; // Variable integer to keep if we have Successful Read from Rea
 
 byte storedCard[4];   // Stores an ID read from EEPROM
 byte readCard[4];           // Stores scanned ID read from RFID Module
-byte masterCard[4]; // Stores master card's ID read from EEPROM
 
 /* We need to define MFRC522's pins and create instance
  * Pin layout should be as follows (on Arduino Uno):
@@ -173,34 +172,7 @@ void setup() {
       digitalWrite(redLed, LED_OFF);
     }
   }
-  //Check if master card defined, if not let user choose a master card
-  //This also useful to just redefine Master Card
-  //You can keep other EEPROM records just write other than 1 to EEPROM address 1
-  if (EEPROM.read(1) != 1) {  // Look EEPROM if Master Card defined, EEPROM address 1 holds if defined
-    Serial.println("No Master Card Defined");
-    Serial.println("Scan A PICC to Define as Master Card");
-    do {
-      successRead = getID(); // sets successRead to 1 when we get read from reader otherwise 0
-      digitalWrite(blueLed, LED_ON); // Visualize Master Card need to be defined
-      delay(200);
-      digitalWrite(blueLed, LED_OFF);
-      delay(200);
-    }
-    while (!successRead); //the program will not go further while you not get a successful read
-    for ( int j = 0; j < 4; j++ ) { // Loop 4 times
-      EEPROM.write( 2 +j, readCard[j] ); // Write scanned PICC's UID to EEPROM, start from address 3
-    }
-    EEPROM.write(1,1); //Write to EEPROM we defined Master Card.
-    Serial.println("Master Card Defined");
-  }
-  Serial.println("##### RFID Door Acces Control v2.0.8 #####"); //For debug purposes
-  Serial.println("Master Card's UID");
-  for ( int i = 0; i < 4; i++ ) {     // Read Master Card's UID from EEPROM
-    masterCard[i] = EEPROM.read(2+i); // Write it to masterCard
-    Serial.print(masterCard[i], HEX);
-  }
-  Serial.println("");
-  Serial.println("Waiting PICCs to bo scanned :)");
+
   cycleLeds();    // Everything ready lets give user some feedback by cycling leds
 }
 
@@ -217,29 +189,25 @@ void loop () {
     }
   }
   while (!successRead); //the program will not go further while you not get a successful read
+
   if (programMode) {
-    if ( isMaster(readCard) ) {  //If master card scanned again exit program mode
-      Serial.println("This is Master Card"); 
-      Serial.println("Exiting Program Mode");
+    if (findID(readCard)) {
+      // If scanned card is known delete it
+      Serial.println("I know this PICC, so removing");
+      deleteID(readCard);
       Serial.println("-----------------------------");
-      programMode = false;
-      return;
+    } else {
+      // If scanned card is not known add it
+      Serial.println("I do not know this PICC, adding...");
+      writeID(readCard);
+      Serial.println("-----------------------------");
     }
-    else {	
-      if ( findID(readCard) ) { //If scanned card is known delete it
-        Serial.println("I know this PICC, so removing");
-        deleteID(readCard);
-        Serial.println("-----------------------------");
-      }
-      else {                    // If scanned card is not known add it
-        Serial.println("I do not know this PICC, adding...");
-        writeID(readCard);
-        Serial.println("-----------------------------");
-      }
-    }
-  }
-  else {
-    if ( isMaster(readCard) ) {  // If scanned card's ID matches Master Card's ID enter program mode
+    // Done programming
+    programMode = false;
+    return;
+  } else {
+    if (digitalRead(wipeB) == LOW) {
+      // Button is pressed, lets add a code!
       programMode = true;
       Serial.println("Hello Master - Entered Program Mode");
       int count = EEPROM.read(0); // Read the first Byte of EEPROM that
@@ -249,13 +217,13 @@ void loop () {
       Serial.println("");
       Serial.println("Scan a PICC to ADD or REMOVE");
       Serial.println("-----------------------------");
-    }
-    else {
-      if ( findID(readCard) ) {        // If not, see if the card is in the EEPROM 
+    } else {
+      // If not, see if the card is in the EEPROM 
+      if (findID(readCard)) {
         Serial.println("Welcome, You shall pass");
         openDoor(300);                // Open the door lock for 300 ms
-      }
-      else {				// If not, show that the ID was not valid
+      } else {
+        // If not, show that the ID was not valid
         Serial.println("You shall not pass");
         failed(); 
       }
@@ -463,15 +431,6 @@ void successDelete() {
   digitalWrite(blueLed, LED_ON); // Make sure blue LED is on
   delay(200);
   Serial.println("Succesfully removed ID record from EEPROM");
-}
-
-////////////////////// Check readCard IF is masterCard   ///////////////////////////////////
-// Check to see if the ID passed is the master programing card
-boolean isMaster( byte test[] ) {
-  if ( checkTwo( test, masterCard ) )
-    return true;
-  else
-    return false;
 }
 
 ///////////////////////////////////////// Unlock Door   ///////////////////////////////////
